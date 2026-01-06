@@ -1,0 +1,30 @@
+{
+  "username": "admin",
+  "password": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
+  "payment_amount": 50,
+  "payment_accounts": [
+    {
+      "bank": "NayaPay",
+      "account": "03110028789",
+      "name": "Muhammad Moiz"
+    },
+    {
+      "bank": "Digitt+",
+      "account": "03110028789",
+      "name": "Muhammad Moiz"
+    }
+  ],
+  "short_url_code": "599aafca",
+  "instructions": "Please make payment to the given account and upload screenshot.",
+  "form_published": true,
+  "contact_email": "moizakram79@gmail.com",
+  "contact_phone": "03110028789",
+  "additional_instructions": "",
+  "tab_visibility": {
+    "account_details": true,
+    "submit_payment": true,
+    "payment_status": true,
+    "student_list": true,
+    "instructions": true
+  }
+}
