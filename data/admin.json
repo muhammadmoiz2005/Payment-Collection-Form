@@ -26,5 +26,10 @@
     "payment_status": true,
     "student_list": true,
     "instructions": true
+  },
+  "screenshot_settings": {
+    "allow_download": true,
+    "allow_delete": true,
+    "max_file_size_mb": 1
   }
 }
