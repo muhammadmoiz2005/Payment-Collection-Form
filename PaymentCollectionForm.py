@@ -239,6 +239,51 @@ def update_additional_instructions(instructions):
     admin_data["additional_instructions"] = instructions
     update_admin_data(admin_data)
 
+# Student deletion function
+def delete_student_by_id(student_id):
+    """Delete a student and all associated data"""
+    students = get_students()
+    payments = get_payments()
+    
+    # Find student
+    student_to_delete = None
+    for student in students:
+        if student.get("id") == student_id:
+            student_to_delete = student
+            break
+    
+    if not student_to_delete:
+        return False
+    
+    # Delete student's screenshot files
+    student_payments = [p for p in payments if p.get("student_id") == student_id]
+    for payment in student_payments:
+        if payment.get("screenshot"):
+            delete_screenshot_file(payment.get("screenshot"))
+    
+    # Remove student from students list
+    updated_students = [s for s in students if s.get("id") != student_id]
+    save_students(updated_students)
+    
+    # Remove student's payments
+    updated_payments = [p for p in payments if p.get("student_id") != student_id]
+    save_payments(updated_payments)
+    
+    return True
+
+def delete_multiple_students(student_ids):
+    """Delete multiple students and their associated data"""
+    success_count = 0
+    fail_count = 0
+    
+    for student_id in student_ids:
+        if delete_student_by_id(student_id):
+            success_count += 1
+        else:
+            fail_count += 1
+    
+    return success_count, fail_count
+
 # Screenshot management
 def delete_screenshot_file(filename):
     """Delete screenshot file from server"""
@@ -1102,7 +1147,7 @@ def update_payment_status(student_id, status):
 def show_student_management():
     st.title("👥 Student Management")
     
-    tab1, tab2 = st.tabs(["Manage Students", "Add New Student"])
+    tab1, tab2, tab3 = st.tabs(["Manage Students", "Add New Student", "Bulk Delete Students"])
     
     with tab1:
         students = get_students()
@@ -1535,6 +1580,117 @@ def show_student_management():
                         payment_datetime, submitted_by
                     )
 
+    with tab3:
+        st.subheader("🗑️ Bulk Delete Students")
+        st.warning("⚠️ **WARNING:** This action cannot be undone! All selected students and their data will be permanently deleted.")
+        
+        students = get_students()
+        
+        if students:
+            # Filter options for bulk delete
+            col1, col2 = st.columns(2)
+            with col1:
+                bulk_filter_status = st.selectbox("Filter by Status", ["All", "Paid", "Unpaid", "Pending"], key="bulk_filter")
+            with col2:
+                bulk_search = st.text_input("Search by Name or Roll Number", key="bulk_search")
+            
+            # Apply filters
+            filtered_students = students
+            if bulk_filter_status != "All":
+                filtered_students = [s for s in filtered_students if s.get("payment_status") == bulk_filter_status]
+            
+            if bulk_search:
+                filtered_students = [s for s in filtered_students 
+                                   if bulk_search.lower() in s.get("name", "").lower() 
+                                   or bulk_search in s.get("roll_number", "")]
+            
+            if filtered_students:
+                # Create a DataFrame for display with checkboxes
+                st.info(f"Found {len(filtered_students)} students matching your criteria")
+                
+                # Create checkboxes for each student
+                selected_students = []
+                
+                # Display in groups of 10 for better performance
+                for i in range(0, len(filtered_students), 10):
+                    group = filtered_students[i:i+10]
+                    
+                    for student in group:
+                        col1, col2, col3, col4 = st.columns([1, 3, 3, 2])
+                        with col1:
+                            selected = st.checkbox("", key=f"select_{student['id']}")
+                            if selected:
+                                selected_students.append(student["id"])
+                        with col2:
+                            st.write(f"**{student.get('name')}**")
+                        with col3:
+                            st.write(f"Roll: {student.get('roll_number')}")
+                        with col4:
+                            status = student.get("payment_status", "Pending")
+                            color = {"Paid": "green", "Unpaid": "red", "Pending": "orange"}.get(status, "gray")
+                            st.markdown(f"<span style='color:{color}'>{status}</span>", unsafe_allow_html=True)
+                    
+                    st.divider()
+                
+                # Summary of selected students
+                if selected_students:
+                    st.subheader(f"Selected {len(selected_students)} Students for Deletion")
+                    
+                    # Show details of selected students
+                    selected_student_details = []
+                    for student_id in selected_students:
+                        student = get_student_by_id(student_id)
+                        if student:
+                            selected_student_details.append({
+                                "Name": student.get("name"),
+                                "Roll Number": student.get("roll_number"),
+                                "Status": student.get("payment_status"),
+                                "Payment Date": format_datetime(student.get("payment_datetime", ""))
+                            })
+                    
+                    if selected_student_details:
+                        df_selected = pd.DataFrame(selected_student_details)
+                        st.dataframe(df_selected, use_container_width=True)
+                    
+                    # Confirmation for deletion
+                    st.error("""
+                    **Deletion will permanently remove:**
+                    - Student records
+                    - All payment records
+                    - Uploaded screenshots
+                    - All associated data
+                    """)
+                    
+                    # Double confirmation
+                    confirm_text = st.text_input("Type 'DELETE' to confirm")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("🗑️ Delete Selected Students", type="secondary", disabled=confirm_text != "DELETE"):
+                            if confirm_text == "DELETE":
+                                with st.spinner("Deleting selected students..."):
+                                    success_count, fail_count = delete_multiple_students(selected_students)
+                                    
+                                    if success_count > 0:
+                                        st.success(f"Successfully deleted {success_count} students!")
+                                        if fail_count > 0:
+                                            st.warning(f"Failed to delete {fail_count} students")
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to delete any students")
+                            else:
+                                st.warning("Please type 'DELETE' to confirm")
+                    
+                    with col2:
+                        if st.button("Clear Selection"):
+                            st.rerun()
+                else:
+                    st.info("Select students by checking the boxes to enable deletion")
+            else:
+                st.info("No students found matching your criteria")
+        else:
+            st.info("No students found to delete")
+
 def add_student_with_details(name, roll_number, payment_status, selected_account, 
                             transaction_id, amount_paid, admin_remarks, 
                             payment_datetime, submitted_by):
@@ -1607,29 +1763,54 @@ def show_payment_settings():
     with tab1:
         st.subheader("Payment Configuration")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            payment_amount = st.number_input(
-                "Payment Amount (PKR)",
-                min_value=0,
-                value=admin_data.get("payment_amount", 5000)
-            )
+        # Payment Amount and Base URL in a form
+        with st.form("basic_settings_form"):
+            col1, col2 = st.columns(2)
             
-        with col2:
-            # Base URL Configuration
-            new_base_url = st.text_input(
-                "Base URL",
-                value=base_url,
-                help="Your app URL (e.g., https://payment-collection-form.streamlit.app)"
-            )
-        
-        # Generate new short URL code
-        if st.button("Generate New Student URL Code"):
-            admin_data["short_url_code"] = str(uuid.uuid4())[:8]
-            update_admin_data(admin_data)
-            st.success("New URL code generated!")
-            st.rerun()
+            with col1:
+                payment_amount = st.number_input(
+                    "Payment Amount (PKR)*",
+                    min_value=0,
+                    value=admin_data.get("payment_amount", 5000),
+                    help="Set the fixed payment amount for students"
+                )
+                
+            with col2:
+                # Base URL Configuration
+                new_base_url = st.text_input(
+                    "Base URL*",
+                    value=base_url,
+                    help="Your app URL (e.g., https://payment-collection-form.streamlit.app)"
+                )
+            
+            # Generate new short URL code option
+            generate_new_code = st.checkbox("Generate new student URL code", value=False)
+            
+            # Save button
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                save_button = st.form_submit_button("💾 Save Basic Settings", use_container_width=True)
+            
+            if save_button:
+                if not payment_amount or not new_base_url:
+                    st.error("Please fill all required fields (*)")
+                else:
+                    # Update payment amount
+                    admin_data["payment_amount"] = payment_amount
+                    
+                    # Update base URL if changed
+                    if new_base_url != base_url:
+                        admin_data["base_url"] = new_base_url.strip().rstrip('/')
+                        st.success(f"Base URL updated to: {new_base_url}")
+                    
+                    # Generate new short URL code if requested
+                    if generate_new_code:
+                        admin_data["short_url_code"] = str(uuid.uuid4())[:8]
+                        st.success("New student URL code generated!")
+                    
+                    update_admin_data(admin_data)
+                    st.success("Basic settings saved successfully!")
+                    st.rerun()
         
         # Important note about Streamlit Cloud
         st.warning("""
@@ -1644,13 +1825,6 @@ def show_payment_settings():
             test_url = f"{base_url}/?student={admin_data.get('short_url_code')}"
             st.info(f"**Test URL:** {test_url}")
             st.markdown(f'<a href="{test_url}" target="_blank">Open Test URL in New Tab</a>', unsafe_allow_html=True)
-        
-        # Save button
-        if st.button("Save Base URL"):
-            if new_base_url and new_base_url != base_url:
-                update_base_url(new_base_url.strip())
-                st.success(f"Base URL updated to: {new_base_url}")
-                st.rerun()
         
         # Current URL display
         st.divider()
@@ -1672,39 +1846,57 @@ def show_payment_settings():
         
         accounts = admin_data.get("payment_accounts", [])
         
-        for i, account in enumerate(accounts):
-            st.divider()
-            st.write(f"**Account {i+1}**")
+        # Display current accounts in a form
+        with st.form("account_details_form"):
+            st.write("**Current Accounts:**")
             
+            account_changes = []
+            for i, account in enumerate(accounts):
+                st.divider()
+                st.write(f"**Account {i+1}**")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    bank = st.text_input("Bank Name", value=account.get("bank", ""), key=f"bank_{i}")
+                with col2:
+                    account_no = st.text_input("Account Number", value=account.get("account", ""), key=f"account_{i}")
+                with col3:
+                    account_name = st.text_input("Account Holder Name", value=account.get("name", ""), key=f"name_{i}")
+                
+                account_changes.append({"bank": bank, "account": account_no, "name": account_name})
+            
+            # Save button
             col1, col2, col3 = st.columns(3)
             with col1:
-                bank = st.text_input("Bank Name", value=account.get("bank", ""), key=f"bank_{i}")
-            with col2:
-                account_no = st.text_input("Account Number", value=account.get("account", ""), key=f"account_{i}")
-            with col3:
-                account_name = st.text_input("Account Holder Name", value=account.get("name", ""), key=f"name_{i}")
-            
-            accounts[i] = {"bank": bank, "account": account_no, "name": account_name}
+                if st.form_submit_button("💾 Save Account Details", use_container_width=True):
+                    admin_data["payment_accounts"] = account_changes
+                    update_admin_data(admin_data)
+                    st.success("Account details saved!")
+                    st.rerun()
         
-        # Add new account button
-        if st.button("Add Another Account"):
-            accounts.append({"bank": "", "account": "", "name": ""})
-            admin_data["payment_accounts"] = accounts
-            update_admin_data(admin_data)
-            st.rerun()
+        # Add/Remove account buttons (outside form to avoid rerun issues)
+        st.divider()
+        st.write("**Quick Actions:**")
         
-        # Remove account button
-        if len(accounts) > 1 and st.button("Remove Last Account"):
-            accounts.pop()
-            admin_data["payment_accounts"] = accounts
-            update_admin_data(admin_data)
-            st.rerun()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("➕ Add New Account"):
+                accounts.append({"bank": "", "account": "", "name": ""})
+                admin_data["payment_accounts"] = accounts
+                update_admin_data(admin_data)
+                st.success("New account added!")
+                st.rerun()
         
-        # Save accounts
-        if st.button("Save Account Details"):
-            admin_data["payment_accounts"] = accounts
-            update_admin_data(admin_data)
-            st.success("Account details saved!")
+        with col2:
+            if len(accounts) > 1:
+                if st.button("➖ Remove Last Account"):
+                    accounts.pop()
+                    admin_data["payment_accounts"] = accounts
+                    update_admin_data(admin_data)
+                    st.success("Last account removed!")
+                    st.rerun()
+            else:
+                st.button("➖ Remove Last Account", disabled=True, help="Cannot remove the only account")
     
     with tab3:
         st.subheader("📋 Form Control Center")
@@ -1744,19 +1936,21 @@ def show_payment_settings():
         
         st.divider()
         
-        # Additional Instructions
+        # Additional Instructions with save button
         st.subheader("Additional Instructions")
         st.info("These instructions appear in the Account Details tab for students")
         
-        additional_instructions = st.text_area(
-            "Enter additional instructions for students",
-            value=get_additional_instructions(),
-            height=200
-        )
-        
-        if st.button("Save Additional Instructions"):
-            update_additional_instructions(additional_instructions)
-            st.success("Additional instructions saved!")
+        with st.form("additional_instructions_form"):
+            additional_instructions = st.text_area(
+                "Enter additional instructions for students",
+                value=get_additional_instructions(),
+                height=200
+            )
+            
+            if st.form_submit_button("💾 Save Additional Instructions"):
+                update_additional_instructions(additional_instructions)
+                st.success("Additional instructions saved!")
+                st.rerun()
         
         # Form statistics
         st.divider()
@@ -1783,55 +1977,58 @@ def show_payment_settings():
         # Get current visibility
         tab_visibility = get_tab_visibility()
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("### Enable/Disable Tabs")
+        # Tab visibility settings in a form
+        with st.form("tab_visibility_form"):
+            col1, col2 = st.columns(2)
             
-            account_details = st.checkbox(
-                "Account Details Tab",
-                value=tab_visibility.get("account_details", True),
-                help="Shows payment account details and instructions"
-            )
+            with col1:
+                st.write("### Enable/Disable Tabs")
+                
+                account_details = st.checkbox(
+                    "Account Details Tab",
+                    value=tab_visibility.get("account_details", True),
+                    help="Shows payment account details and instructions"
+                )
+                
+                submit_payment = st.checkbox(
+                    "Submit Payment Tab",
+                    value=tab_visibility.get("submit_payment", True),
+                    help="Allows students to submit payment forms"
+                )
+                
+                payment_status = st.checkbox(
+                    "Payment Status Tab",
+                    value=tab_visibility.get("payment_status", True),
+                    help="Allows students to check their payment status"
+                )
             
-            submit_payment = st.checkbox(
-                "Submit Payment Tab",
-                value=tab_visibility.get("submit_payment", True),
-                help="Allows students to submit payment forms"
-            )
+            with col2:
+                st.write("### ")  # Empty header for alignment
+                
+                student_list = st.checkbox(
+                    "Student List Tab",
+                    value=tab_visibility.get("student_list", True),
+                    help="Shows list of paid and unpaid students"
+                )
+                
+                instructions = st.checkbox(
+                    "Instructions Tab",
+                    value=tab_visibility.get("instructions", True),
+                    help="Shows general instructions from admin"
+                )
             
-            payment_status = st.checkbox(
-                "Payment Status Tab",
-                value=tab_visibility.get("payment_status", True),
-                help="Allows students to check their payment status"
-            )
-        
-        with col2:
-            st.write("### ")  # Empty header for alignment
-            
-            student_list = st.checkbox(
-                "Student List Tab",
-                value=tab_visibility.get("student_list", True),
-                help="Shows list of paid and unpaid students"
-            )
-            
-            instructions = st.checkbox(
-                "Instructions Tab",
-                value=tab_visibility.get("instructions", True),
-                help="Shows general instructions from admin"
-            )
-        
-        # Save button
-        if st.button("Save Tab Visibility Settings"):
-            new_visibility = {
-                "account_details": account_details,
-                "submit_payment": submit_payment,
-                "payment_status": payment_status,
-                "student_list": student_list,
-                "instructions": instructions
-            }
-            update_tab_visibility(new_visibility)
-            st.success("Tab visibility settings saved!")
+            # Save button
+            if st.form_submit_button("💾 Save Tab Visibility Settings"):
+                new_visibility = {
+                    "account_details": account_details,
+                    "submit_payment": submit_payment,
+                    "payment_status": payment_status,
+                    "student_list": student_list,
+                    "instructions": instructions
+                }
+                update_tab_visibility(new_visibility)
+                st.success("Tab visibility settings saved!")
+                st.rerun()
         
         # Preview what students see
         st.divider()
@@ -1884,28 +2081,32 @@ def show_payment_settings():
         current_phone = contact_info['phone']
         
         with st.form("contact_info_form"):
-            email = st.text_input("Contact Email", value=current_email)
-            phone = st.text_input("Contact Phone Number", value=current_phone)
+            email = st.text_input("Contact Email*", value=current_email)
+            phone = st.text_input("Contact Phone Number*", value=current_phone)
             
-            submitted = st.form_submit_button("Save Contact Information")
-            
-            if submitted:
-                update_contact_info(email, phone)
-                st.success("Contact information saved successfully!")
+            if st.form_submit_button("💾 Save Contact Information"):
+                if email and phone:
+                    update_contact_info(email, phone)
+                    st.success("Contact information saved successfully!")
+                    st.rerun()
+                else:
+                    st.error("Please fill all required fields (*)")
     
     with tab6:
         st.subheader("Instructions for Students")
         st.info("These instructions appear in the Instructions tab for students")
         
-        instructions = st.text_area(
-            "Enter instructions that will appear in the student panel",
-            value=get_instructions(),
-            height=300
-        )
-        
-        if st.button("Save Instructions"):
-            save_instructions(instructions)
-            st.success("Instructions saved!")
+        with st.form("instructions_form"):
+            instructions = st.text_area(
+                "Enter instructions that will appear in the student panel",
+                value=get_instructions(),
+                height=300
+            )
+            
+            if st.form_submit_button("💾 Save Instructions"):
+                save_instructions(instructions)
+                st.success("Instructions saved!")
+                st.rerun()
 
 def show_screenshot_management():
     st.title("📸 Screenshot Management")
@@ -1935,16 +2136,14 @@ def show_screenshot_management():
             
             with col2:
                 max_file_size = st.number_input(
-                    "Maximum File Size (MB)",
+                    "Maximum File Size (MB)*",
                     min_value=1,
                     max_value=50,
                     value=screenshot_settings.get("max_file_size_mb", 5),
                     help="Maximum allowed file size for uploaded screenshots"
                 )
             
-            submitted = st.form_submit_button("Save Settings")
-            
-            if submitted:
+            if st.form_submit_button("💾 Save Settings"):
                 new_settings = {
                     "allow_download": allow_download,
                     "allow_delete": allow_delete,
@@ -1952,6 +2151,7 @@ def show_screenshot_management():
                 }
                 update_screenshot_settings(new_settings)
                 st.success("Screenshot settings saved!")
+                st.rerun()
         
         # Current statistics
         st.divider()
@@ -2384,15 +2584,15 @@ def show_admin_settings():
         st.subheader("Change Username and Password")
         
         with st.form("change_credentials"):
-            current_password = st.text_input("Current Password", type="password")
-            new_username = st.text_input("New Username", value=admin_data.get("username", ""))
-            new_password = st.text_input("New Password", type="password")
-            confirm_password = st.text_input("Confirm New Password", type="password")
+            current_password = st.text_input("Current Password*", type="password")
+            new_username = st.text_input("New Username*", value=admin_data.get("username", ""))
+            new_password = st.text_input("New Password*", type="password")
+            confirm_password = st.text_input("Confirm New Password*", type="password")
             
-            submitted = st.form_submit_button("Update Credentials")
-            
-            if submitted:
-                if not authenticate(admin_data.get("username"), current_password):
+            if st.form_submit_button("💾 Update Credentials"):
+                if not current_password or not new_username or not new_password or not confirm_password:
+                    st.error("Please fill all required fields (*)")
+                elif not authenticate(admin_data.get("username"), current_password):
                     st.error("Current password is incorrect")
                 elif new_password != confirm_password:
                     st.error("New passwords don't match")
@@ -2403,6 +2603,7 @@ def show_admin_settings():
                     admin_data["password"] = hash_password(new_password)
                     update_admin_data(admin_data)
                     st.success("Credentials updated successfully!")
+                    st.rerun()
     
     with tab2:
         st.subheader("System Information")
