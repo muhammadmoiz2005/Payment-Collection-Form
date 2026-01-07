@@ -37,7 +37,7 @@ def init_files():
             "payment_amount": 5000,
             "payment_accounts": [{"bank": "Bank Name", "account": "1234567890", "name": "Account Holder"}],
             "short_url_code": str(uuid.uuid4())[:8],
-            "base_url": "http://localhost:8501",
+            "base_url": "https://payment-collection-form.streamlit.app",
             "instructions": "Default instructions for students.",
             "additional_instructions": "Please make payment to the given account and upload screenshot.",
             "form_published": True,
@@ -175,17 +175,22 @@ def update_screenshot_settings(settings):
 
 def get_short_url():
     admin_data = get_admin_data()
-    base_url = admin_data.get("base_url", "http://localhost:8501")
+    base_url = admin_data.get("base_url", "https://payment-collection-form.streamlit.app")
     short_url_code = admin_data.get("short_url_code", "")
+    # Ensure no trailing slash
+    base_url = base_url.rstrip('/')
     return f"{base_url}/?student={short_url_code}"
 
 def get_base_url():
     admin_data = get_admin_data()
-    return admin_data.get("base_url", "http://localhost:8501")
+    base_url = admin_data.get("base_url", "https://payment-collection-form.streamlit.app")
+    # Remove trailing slash for consistency
+    return base_url.rstrip('/')
 
 def update_base_url(base_url):
     admin_data = get_admin_data()
-    admin_data["base_url"] = base_url
+    # Remove trailing slash before saving
+    admin_data["base_url"] = base_url.rstrip('/')
     update_admin_data(admin_data)
 
 def is_form_published():
@@ -335,18 +340,34 @@ def save_instructions(instructions):
 def main():
     init_files()
     
-    # Check if student panel should be shown using backward compatible method
+    # Check if student panel should be shown
     query_params = get_query_params()
+    
+    # DEBUG: Show query params (set to False in production)
+    DEBUG_MODE = False
+    if DEBUG_MODE:
+        st.sidebar.write("🔍 DEBUG INFO")
+        st.sidebar.write("Query Params:", query_params)
+        admin_data = get_admin_data()
+        st.sidebar.write("Admin Code:", admin_data.get("short_url_code"))
+        st.sidebar.write("Base URL:", get_base_url())
+        st.sidebar.write("Full URL:", get_short_url())
     
     if "student" in query_params:
         student_code = query_params["student"]
         admin_data = get_admin_data()
+        
+        if DEBUG_MODE:
+            st.sidebar.write("Student Code from URL:", student_code)
+            st.sidebar.write("Code Match:", student_code == admin_data.get("short_url_code"))
+        
         if student_code == admin_data.get("short_url_code"):
             show_student_panel()
             return
         else:
-            st.error("Invalid student portal URL")
-            return
+            st.error("❌ Invalid student portal URL")
+            # Show login option even if URL is invalid
+            pass
     
     # Show login/register page
     if "logged_in" not in st.session_state:
@@ -374,6 +395,15 @@ def show_login_page():
                     st.rerun()
                 else:
                     st.error("Invalid credentials")
+        
+        # Student portal link
+        st.markdown("---")
+        st.markdown("### Student Portal")
+        admin_data = get_admin_data()
+        short_url = get_short_url()
+        st.info(f"Student Portal URL: `{short_url}`")
+        if st.button("📋 Copy Student URL"):
+            st.toast("Student URL copied to clipboard!", icon="✅")
 
 def show_student_panel():
     # Check if form is published
@@ -493,7 +523,7 @@ def show_account_details_section(payment_accounts, payment_amount, admin_data):
                 st.divider()
         
         # Payment amount
-        st.warning(f"**IMPORTANT:** Payment amount is fixed at PKR{payment_amount}")
+        st.warning(f"**IMPORTANT:** Payment amount is fixed at PKR {payment_amount}")
         
         # Additional instructions
         additional_instructions = get_additional_instructions()
@@ -507,7 +537,7 @@ def show_submit_payment_section(payment_amount, payment_accounts, screenshot_set
     st.header("Submit Payment Details")
     
     # Display payment amount reminder
-    st.warning(f"Payment Amount: PKR{payment_amount} (fixed)")
+    st.warning(f"Payment Amount: PKR {payment_amount} (fixed)")
     
     max_file_size = screenshot_settings.get("max_file_size_mb", 5)
     
@@ -662,7 +692,7 @@ def show_payment_status_section():
                     with st.expander(f"Payment on {payment_date}"):
                         cols = st.columns(4)
                         cols[0].write(f"**Transaction ID:** {payment.get('transaction_id')}")
-                        cols[1].write(f"**Amount:** PKR{payment.get('amount')}")
+                        cols[1].write(f"**Amount:** PKR {payment.get('amount')}")
                         cols[2].write(f"**Status:** {payment.get('status')}")
                         cols[3].write(f"**Account:** {payment.get('payment_account', 'Not specified')}")
                         
@@ -778,6 +808,14 @@ def show_admin_panel():
         st.session_state.logged_in = False
         st.rerun()
     
+    # Student portal quick link
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Student Portal")
+    short_url = get_short_url()
+    st.sidebar.code(short_url[:40] + "..." if len(short_url) > 40 else short_url)
+    if st.sidebar.button("📋 Copy Student URL", use_container_width=True):
+        st.toast("Student URL copied to clipboard!", icon="✅")
+    
     if page == "Dashboard":
         show_admin_dashboard()
     elif page == "Student Management":
@@ -862,8 +900,8 @@ def show_admin_dashboard():
         if st.button("📋 Copy URL", type="secondary", use_container_width=True):
             st.toast("URL copied to clipboard!", icon="✅")
     with col3:
-        if st.button("🔗 Test URL", type="primary", use_container_width=True):
-            st.toast(f"Testing URL: {short_url}", icon="🔗")
+        if st.button("🔗 Open in New Tab", type="primary", use_container_width=True):
+            st.markdown(f'<a href="{short_url}" target="_blank">Click here to open</a>', unsafe_allow_html=True)
     
     st.info(f"**Base URL:** {base_url}")
     
@@ -933,7 +971,7 @@ def show_admin_dashboard():
                 with st.expander(f"{student.get('name')} - {payment_date}"):
                     cols = st.columns(4)
                     cols[0].write(f"**Roll:** {student.get('roll_number')}")
-                    cols[1].write(f"**Amount:** PKR{payment.get('amount')}")
+                    cols[1].write(f"**Amount:** PKR {payment.get('amount')}")
                     cols[2].write(f"**Status:** {payment.get('status')}")
                     cols[3].write(f"**Txn ID:** {payment.get('transaction_id')}")
                     
@@ -1177,7 +1215,7 @@ def show_student_management():
                                 with st.expander(f"Payment: {payment.get('transaction_id')} - {payment.get('status')}"):
                                     col_info1, col_info2 = st.columns(2)
                                     with col_info1:
-                                        st.write(f"**Amount:** PKR{payment.get('amount')}")
+                                        st.write(f"**Amount:** PKR {payment.get('amount')}")
                                         st.write(f"**Date:** {format_datetime(payment.get('payment_datetime'))}")
                                     with col_info2:
                                         st.write(f"**Account:** {payment.get('payment_account')}")
@@ -1458,7 +1496,7 @@ def show_student_management():
                     help="Enter transaction ID if payment is made"
                 )
                 amount_paid = st.number_input(
-                    "Amount Paid (PK)*",
+                    "Amount Paid (PKR)*",
                     min_value=0,
                     value=payment_amount if payment_status == "Paid" else 0,
                     help="Enter the amount student actually paid"
@@ -1583,7 +1621,7 @@ def show_payment_settings():
             new_base_url = st.text_input(
                 "Base URL",
                 value=base_url,
-                help="Change this when deploying to a different server (e.g., https://your-domain.com)"
+                help="Your app URL (e.g., https://payment-collection-form.streamlit.app)"
             )
         
         # Generate new short URL code
@@ -1593,34 +1631,40 @@ def show_payment_settings():
             st.success("New URL code generated!")
             st.rerun()
         
-        # Current URL with copy button
-        st.subheader("Student Portal URL")
-        short_url = get_short_url()
+        # Important note about Streamlit Cloud
+        st.warning("""
+        **Important for Streamlit Cloud:**
+        1. Your Base URL should be: `https://payment-collection-form.streamlit.app`
+        2. Make sure there's no trailing slash at the end
+        3. Student portal URL format: `https://payment-collection-form.streamlit.app/?student=YOUR_CODE`
+        """)
         
-        col1, col2, col3 = st.columns([3, 1, 1])
-        with col1:
-            st.code(short_url)
-        with col2:
-            if st.button("📋 Copy", type="secondary", use_container_width=True):
-                st.toast("URL copied to clipboard!", icon="✅")
-        with col3:
-            if st.button("🔗 Test", type="primary", use_container_width=True):
-                st.toast(f"Testing URL: {short_url}", icon="🔗")
+        # Test URL button
+        if st.button("Test Student Portal URL"):
+            test_url = f"{base_url}/?student={admin_data.get('short_url_code')}"
+            st.info(f"**Test URL:** {test_url}")
+            st.markdown(f'<a href="{test_url}" target="_blank">Open Test URL in New Tab</a>', unsafe_allow_html=True)
         
-        # URL format info
-        st.info(f"**URL Format:** {base_url}/?student=[code]")
-        
-        if st.button("Save All Settings"):
-            # Update payment amount
-            admin_data["payment_amount"] = payment_amount
-            
-            # Update base URL if changed
-            if new_base_url != base_url:
-                admin_data["base_url"] = new_base_url.strip()
+        # Save button
+        if st.button("Save Base URL"):
+            if new_base_url and new_base_url != base_url:
+                update_base_url(new_base_url.strip())
                 st.success(f"Base URL updated to: {new_base_url}")
-            
-            update_admin_data(admin_data)
-            st.success("Settings saved successfully!")
+                st.rerun()
+        
+        # Current URL display
+        st.divider()
+        st.subheader("Current Student Portal URL")
+        
+        short_url = get_short_url()
+        st.code(short_url)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📋 Copy URL", use_container_width=True):
+                st.toast("URL copied to clipboard!", icon="✅")
+        with col2:
+            st.markdown(f'<a href="{short_url}" target="_blank"><button style="background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; width: 100%;">🔗 Open Portal</button></a>', unsafe_allow_html=True)
     
     with tab2:
         st.subheader("Payment Account Details")
@@ -2286,12 +2330,12 @@ def show_reports():
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Total Amount Collected", f"PKR{total_amount:,}")
+                st.metric("Total Amount Collected", f"PKR {total_amount:,}")
             with col2:
                 st.metric("Total Paid Transactions", total_paid_count)
             with col3:
                 avg_amount = total_amount / total_paid_count if total_paid_count > 0 else 0
-                st.metric("Average Payment", f"PKR{avg_amount:,.2f}")
+                st.metric("Average Payment", f"PKR {avg_amount:,.2f}")
             
             # Screenshot analytics
             st.divider()
@@ -2323,7 +2367,7 @@ def show_reports():
                     with col1:
                         st.write(f"**{student.get('name')}** ({student.get('roll_number')})")
                     with col2:
-                        st.write(f"PKR{payment.get('amount')} - {payment.get('status')}")
+                        st.write(f"PKR {payment.get('amount')} - {payment.get('status')}")
                     with col3:
                         payment_date = format_datetime(payment.get("payment_datetime", payment.get("submission_date")))
                         st.write(f"{payment_date}")
@@ -2375,7 +2419,7 @@ def show_admin_settings():
         with col1:
             st.info(f"Total Students: {len(students)}")
             st.info(f"Total Payments: {len(payments)}")
-            st.info(f"Payment Amount: PKR{admin_data.get('payment_amount', 5000)}")
+            st.info(f"Payment Amount: PKR {admin_data.get('payment_amount', 5000)}")
             st.info(f"Form Status: {'Published' if is_form_published() else 'Unpublished'}")
             st.info(f"Base URL: {base_url}")
             st.info(f"Student URL Code: {admin_data.get('short_url_code')}")
@@ -2414,8 +2458,7 @@ def show_admin_settings():
             if st.button("📋 Copy Full URL", use_container_width=True):
                 st.toast("Full URL copied to clipboard!", icon="✅")
         with col2:
-            if st.button("🔗 Test Full URL", use_container_width=True):
-                st.toast(f"Testing: {get_short_url()}", icon="🔗")
+            st.markdown(f'<a href="{get_short_url()}" target="_blank"><button style="background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; width: 100%;">🔗 Open Student Portal</button></a>', unsafe_allow_html=True)
         
         # Data backup
         st.divider()
