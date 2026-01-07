@@ -2277,23 +2277,21 @@ def show_screenshot_management():
             with col5:
                 st.metric("Deleted Screenshots", deleted_screenshots)
             
-            # Pie chart for screenshot distribution
+            # Simple visualization using Streamlit's built-in chart
             st.divider()
             st.subheader("Screenshot Distribution")
             
-            import plotly.express as px
+            # Create data for bar chart
+            chart_data = pd.DataFrame({
+                'Category': ['With Screenshots', 'Without Screenshots', 'Deleted Screenshots'],
+                'Count': [active_screenshots, payments_without_screenshots, deleted_screenshots]
+            })
             
-            # Create data for pie chart
-            labels = ['With Screenshots', 'Without Screenshots', 'Deleted Screenshots']
-            values = [active_screenshots, payments_without_screenshots, deleted_screenshots]
+            # Display as bar chart
+            st.bar_chart(chart_data.set_index('Category'))
             
-            fig = px.pie(
-                values=values,
-                names=labels,
-                title="Screenshot Distribution",
-                color_discrete_sequence=px.colors.qualitative.Set3
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            # Display as table as well
+            st.dataframe(chart_data, use_container_width=True, hide_index=True)
             
             # Recent screenshot activity
             st.divider()
